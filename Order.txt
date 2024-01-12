@@ -1,0 +1,52 @@
+X-UI
+安装X-UI
+bash <(curl -Ls https://raw.githubusercontent.com/FranzKafkaYu/x-ui/956bf85bbac978d56c0e319c5fac2d6db7df9564/install.sh) 0.3.4.4
+
+Alist
+安装
+curl -fsSL "https://alist.nn.ci/v3.sh" | bash -s install
+#更新
+curl -fsSL "https://alist.nn.ci/v3.sh" | bash -s update
+#卸载
+curl -fsSL "https://alist.nn.ci/v3.sh" | bash -s uninstall
+#自定义路径
+默认安装在 /opt/alist 中。 自定义安装路径，将安装路径作为第二个参数添加，必须是绝对路径（如果路径以 alist 结尾，则直接安装到给定路径，否则会安装在给定路径 alist 目录下），如 安装到 /root：
+# Install
+curl -fsSL "https://alist.nn.ci/v3.sh" | bash -s install /root
+# update
+curl -fsSL "https://alist.nn.ci/v3.sh" | bash -s update /root
+# Uninstall
+curl -fsSL "https://alist.nn.ci/v3.sh" | bash -s uninstall /root
+启动: systemctl start alist
+关闭: systemctl stop alist
+状态: systemctl status alist
+重启: systemctl restart alist
+#获取密码
+# 随机生成一个密码
+./alist admin random
+# 手动设置一个密码,`NEW_PASSWORD`是指你需要设置的密码
+./alist admin set NEW_PASSWORD
+
+测试三网回程
+curl https://raw.githubusercontent.com/zhucaidan/mtr_trace/main/mtr_trace.sh|bash  # 检测回程脚本
+
+Hy2
+一键安装
+wget -N --no-check-certificate https://raw.githubusercontent.com/flame1ce/hysteria2-install/main/hysteria2-install-main/hy2/hysteria.sh && bash hysteria.sh
+wget -N --no-check-certificate https://raw.githubusercontent.com/Misaka-blog/hysteria-install/main/hy2/hysteria.sh && bash hysteria.sh
+相关
+#启动Hysteria2
+systemctl start hysteria-server.service
+#重启Hysteria2
+systemctl restart hysteria-server.service
+#查看Hysteria2状态
+systemctl status hysteria-server.service
+#停止Hysteria2
+systemctl stop hysteria-server.service
+#设置开机自启
+systemctl enable hysteria-server.service
+#查看日志
+journalctl -u hysteria-server.service
+
+一键ss
+wget -O ss-rust.sh --no-check-certificate https://raw.githubusercontent.com/xOS/Shadowsocks-Rust/master/ss-rust.sh && chmod +x ss-rust.sh && ./ss-rust.sh
