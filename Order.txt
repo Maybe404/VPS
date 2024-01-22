@@ -50,3 +50,6 @@ journalctl -u hysteria-server.service
 
 一键ss
 wget -O ss-rust.sh --no-check-certificate https://raw.githubusercontent.com/xOS/Shadowsocks-Rust/master/ss-rust.sh && chmod +x ss-rust.sh && ./ss-rust.sh
+
+重新加载nginx配置文件
+systemctl reload nginx
