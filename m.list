@@ -1,15 +1,1 @@
-server: 154.9.234.230:5443
-auth: yougmoney0427
-
-bandwidth:
-  up: 50 mbps
-  down: 100 mbps
-  
-tls:
-  sni: xfgwebreport.eu.org
-  insecure: false #使用自签时需要改成true
-
-socks5:
-  listen: 127.0.0.1:1080
-http:
-  listen: 127.0.0.1:8080
+Hy2 美国 9929 = Hysteria2,154.9.234.230,5443,"yougmoney0427",tls-name=xfgwebreport.eu.org,udp=true,download-bandwidth=100
