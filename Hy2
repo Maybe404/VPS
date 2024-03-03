@@ -60,3 +60,4 @@ socks5:
 http:
   listen: 127.0.0.1:8080
 DOMAIN-SUFFIX,meituan.xn
+DOMAIN-SUFFIX,yyy.com
