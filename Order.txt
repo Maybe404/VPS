@@ -54,3 +54,4 @@ wget -O ss-rust.sh --no-check-certificate https://raw.githubusercontent.com/xOS/
 重新加载nginx配置文件
 systemctl reload nginx
 DOMAIN-SUFFIX,meituan.xn
+DOMAIN-SUFFIX,yyyst.xn
