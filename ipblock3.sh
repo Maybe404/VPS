@@ -1,103 +1,257 @@
 #!/bin/bash
 
-# 中国IP段屏蔽脚本（支持 ipset + iptables + 协议/端口管理）
-# 作者: ChatGPT & 你
-# 版本: 1.1
+# 版本号
+VERSION="2.0"
+# 默认中国IP列表源
+DEFAULT_CN_URL="http://www.ipdeny.com/ipblocks/data/countries/cn.zone"
+# 配置保存路径
+IPSET_CONF="/etc/ipset.conf"
+# 持久化服务名
+SERVICE_FILE="/etc/systemd/system/ipset-persistent.service"
+# 规则配置文件
+RULES_CONF="/etc/ipset-rules.conf"
 
-IP_LIST_URL="https://www.ipdeny.com/ipblocks/data/countries/cn.zone"
-IPSET_NAME="china"
-IPTABLES_PORT_RANGE="30000:40000"
-VERSION="1.1"
-
-# 颜色设置
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-BLUE='\033[1;34m'
+# 颜色定义
+RED='\033[31m'
+GREEN='\033[32m'
+YELLOW='\033[33m'
+BLUE='\033[34m'
 RESET='\033[0m'
 
-# 创建 ipset 集合
+# 检查root权限
+check_root() {
+    if [ "$EUID" -ne 0 ]; then
+        echo -e "${RED}错误：必须使用root权限运行本脚本！${RESET}"
+        exit 1
+    fi
+}
+
+# 安装依赖
+install_dependencies() {
+    echo -e "${YELLOW}[+] 正在安装必要依赖...${RESET}"
+    apt update >/dev/null 2>&1
+    apt install -y iptables ipset iptables-persistent >/dev/null 2>&1
+    touch "$RULES_CONF"
+    echo -e "${GREEN}[√] 依赖安装完成${RESET}"
+}
+
+# 创建ipset集合
 create_ipset() {
-    if ipset list "$IPSET_NAME" >/dev/null 2>&1; then
-        echo -e "${YELLOW}[!] ipset 集合 $IPSET_NAME 已存在${RESET}"
+    if ipset list china >/dev/null 2>&1; then
+        echo -e "${BLUE}[i] 检测到已存在的china集合，将清空内容${RESET}"
+        ipset flush china
     else
-        ipset create "$IPSET_NAME" hash:net
-        echo -e "${GREEN}[√] 创建 ipset 集合 $IPSET_NAME 成功${RESET}"
+        ipset create china hash:net
     fi
 }
 
-# 下载并导入中国IP段
-update_ipset() {
-    echo -e "${BLUE}正在下载中国IP段...${RESET}"
-    TMP_FILE=$(mktemp)
-    if curl -s "$IP_LIST_URL" -o "$TMP_FILE"; then
-        echo -e "${GREEN}[√] 下载成功，正在更新 IP 集合...${RESET}"
-        ipset flush "$IPSET_NAME"
-        while IFS= read -r ip; do
-            ipset add "$IPSET_NAME" "$ip"
-        done < "$TMP_FILE"
-        echo -e "${GREEN}[√] 更新 IP 集合完成${RESET}"
+# 下载IP列表
+download_ip_list() {
+    local url="$1"
+    echo -e "${YELLOW}[+] 正在从 $url 下载IP列表...${RESET}"
+    
+    if wget -qO /tmp/cn.zone "$url"; then
+        echo -e "${GREEN}[√] IP列表下载成功${RESET}"
+        return 0
     else
-        echo -e "${RED}[×] 下载失败，请检查网络连接${RESET}"
+        echo -e "${RED}[×] 下载失败，请检查URL有效性${RESET}"
+        return 1
     fi
-    rm -f "$TMP_FILE"
 }
 
-# 添加防火墙规则
-add_rule() {
-    read -p "请输入端口（如 80 或 30000-40000）: " port
-    read -p "请输入协议（tcp/udp/icmp，默认全部）: " proto
-    proto=${proto,,}
+# 加载IP到集合
+load_ipset() {
+    echo -e "${YELLOW}[+] 正在加载IP到china集合...${RESET}"
+    while read -r ip; do
+        ipset add china "$ip" 2>/dev/null
+    done < <(grep -v "^#\|^$" /tmp/cn.zone)
+    echo -e "${GREEN}[√] 已加载 $(ipset list china | grep -c "/") 个IP段${RESET}"
+}
 
-    if [[ -z "$proto" ]]; then
-        proto_flag=""
-    else
-        proto_flag="-p $proto"
+# 配置防火墙规则
+configure_iptables() {
+    echo -e "${YELLOW}[+] 正在配置iptables规则...${RESET}"
+    
+    # 清除旧规则
+    iptables-save | grep -v "CHINA_BLOCK" | iptables-restore
+    
+    if [ -f "$RULES_CONF" ]; then
+        while IFS= read -r line; do
+            IFS=':' read -r ports protocols <<< "$line"
+            if [ -z "$protocols" ]; then
+                protocols="tcp,udp"
+            fi
+            
+            IFS=',' read -ra PORT_LIST <<< "$ports"
+            IFS=',' read -ra PROTO_LIST <<< "$protocols"
+            
+            for proto in "${PROTO_LIST[@]}"; do
+                for port in "${PORT_LIST[@]}"; do
+                    iptables -A INPUT -p "$proto" --dport "$port" \
+                        -m set --match-set china src -j DROP \
+                        -m comment --comment "CHINA_BLOCK:$ports:$proto"
+                    echo -e "${BLUE}[→] 已屏蔽协议：${proto} 端口：${port}${RESET}"
+                done
+            done
+        done < "$RULES_CONF"
     fi
-
-    iptables -A INPUT $proto_flag -m set --match-set "$IPSET_NAME" src -m multiport --dports "$port" -j DROP
-    echo -e "${GREEN}[√] 已添加规则：协议=${proto:-全部} 端口=$port${RESET}"
-    save_config
-}
-
-# 删除指定规则
-delete_rule() {
-    echo -e "\n${YELLOW}当前iptables规则：${RESET}"
-    iptables -L INPUT -n -v --line-numbers | grep "$IPSET_NAME"
-    read -p "请输入要删除的规则编号: " rule_num
-    iptables -D INPUT "$rule_num"
-    echo -e "${GREEN}[√] 规则已删除${RESET}"
-    save_config
-}
-
-# 修改规则（删除后重新添加）
-modify_rule() {
-    delete_rule
-    echo -e "${YELLOW}请输入新的规则信息：${RESET}"
-    add_rule
-}
-
-# 显示规则
-show_rules() {
-    echo -e "\n${YELLOW}当前iptables规则：${RESET}"
-    iptables -L INPUT -n -v --line-numbers | grep --color=auto "$IPSET_NAME\|DROP"
-}
-
-# 显示 IP 集合统计
-show_ipset_stats() {
-    echo -e "\n${YELLOW}当前IP集合统计：${RESET}"
-    ipset list "$IPSET_NAME"
+    echo -e "${GREEN}[√] 防火墙规则配置完成${RESET}"
 }
 
 # 保存配置
 save_config() {
-    echo -e "${BLUE}正在保存配置...${RESET}"
-    if command -v netfilter-persistent >/dev/null 2>&1; then
-        netfilter-persistent save
-    elif command -v service >/dev/null 2>&1; then
-        service iptables save
+    echo -e "${YELLOW}[+] 正在保存配置...${RESET}"
+    
+    # 保存iptables
+    iptables-save > /etc/iptables/rules.v4
+    
+    # 保存ipset
+    ipset save china -f $IPSET_CONF
+    
+    # 创建持久化服务
+    if [ ! -f "$SERVICE_FILE" ]; then
+        cat > "$SERVICE_FILE" <<EOF
+[Unit]
+Description=Load ipsets
+Before=network-pre.target
+
+[Service]
+Type=oneshot
+ExecStart=/sbin/ipset restore -f $IPSET_CONF
+
+[Install]
+WantedBy=multi-user.target
+EOF
+        systemctl enable ipset-persistent >/dev/null 2>&1
+    fi
+    
+    echo -e "${GREEN}[√] 配置已持久化，重启后自动生效${RESET}"
+}
+
+# 更新IP列表
+update_ip_list() {
+    local url
+    read -p "输入新的IP列表URL（留空使用默认源）：" url
+    url=${url:-$DEFAULT_CN_URL}
+    
+    if download_ip_list "$url"; then
+        ipset flush china
+        load_ipset
+        ipset save china -f $IPSET_CONF
+        echo -e "${GREEN}[√] IP列表更新完成${RESET}"
+    fi
+}
+
+# 显示规则列表
+show_rules() {
+    if [ ! -s "$RULES_CONF" ]; then
+        echo -e "${YELLOW}当前没有配置任何规则${RESET}"
+        return
+    fi
+    echo -e "\n${YELLOW}已配置规则列表：${RESET}"
+    local count=1
+    while IFS= read -r line; do
+        IFS=':' read -r ports protocols <<< "$line"
+        echo -e "${BLUE}$count. 端口：${ports} 协议：${protocols}${RESET}"
+        ((count++))
+    done < "$RULES_CONF"
+}
+
+# 新增规则
+add_rule() {
+    while true; do
+        read -p "输入要屏蔽的端口/范围（多个用逗号分隔，如 80,443）：" ports
+        if [[ -z "$ports" ]]; then
+            echo -e "${RED}错误：端口不能为空！${RESET}"
+            continue
+        fi
+        if ! [[ "$ports" =~ ^[0-9,-]+$ ]]; then
+            echo -e "${RED}错误：端口格式无效！${RESET}"
+            continue
+        else
+            break
+        fi
+    done
+
+    read -p "输入协议（逗号分隔，如 tcp,udp，留空默认tcp和udp）：" protocols
+    protocols=${protocols:-"tcp,udp"}
+    
+    IFS=',' read -ra proto_array <<< "$protocols"
+    valid=true
+    for proto in "${proto_array[@]}"; do
+        if ! [[ "$proto" =~ ^(tcp|udp)$ ]]; then
+            echo -e "${RED}错误：无效协议 '$proto'，支持的协议为 tcp, udp${RESET}"
+            valid=false
+            break
+        fi
+    done
+    if ! $valid; then
+        return 1
+    fi
+
+    echo "$ports:$protocols" >> "$RULES_CONF"
+    echo -e "${GREEN}[√] 规则已添加${RESET}"
+    configure_iptables
+}
+
+# 删除规则
+delete_rule() {
+    show_rules
+    if [ ! -s "$RULES_CONF" ]; then
+        return
+    fi
+    read -p "输入要删除的规则编号（0取消）：" choice
+    if [[ "$choice" -eq 0 ]]; then
+        return
+    fi
+    if [[ "$choice" =~ ^[0-9]+$ ]] && [ "$choice" -le $(wc -l < "$RULES_CONF") ]; then
+        sed -i "${choice}d" "$RULES_CONF"
+        echo -e "${GREEN}[√] 规则已删除${RESET}"
+        configure_iptables
     else
-        echo -e "${RED}[×] 未找到保存iptables配置的命令，请手动保存${RESET}"
+        echo -e "${RED}无效的编号${RESET}"
+    fi
+}
+
+# 修改规则
+modify_rule() {
+    show_rules
+    if [ ! -s "$RULES_CONF" ]; then
+        return
+    fi
+    read -p "输入要修改的规则编号（0取消）：" choice
+    if [[ "$choice" -eq 0 ]]; then
+        return
+    fi
+    if [[ "$choice" =~ ^[0-9]+$ ]] && [ "$choice" -le $(wc -l < "$RULES_CONF") ]; then
+        old_rule=$(sed -n "${choice}p" "$RULES_CONF")
+        IFS=':' read -r old_ports old_protos <<< "$old_rule"
+        
+        read -p "输入新端口（留空保持 $old_ports）：" ports
+        ports=${ports:-$old_ports}
+        
+        read -p "输入新协议（留空保持 $old_protos）：" protocols
+        protocols=${protocols:-$old_protos}
+        
+        # 验证协议
+        IFS=',' read -ra proto_array <<< "$protocols"
+        valid=true
+        for proto in "${proto_array[@]}"; do
+            if ! [[ "$proto" =~ ^(tcp|udp)$ ]]; then
+                echo -e "${RED}错误：无效协议 '$proto'${RESET}"
+                valid=false
+                break
+            fi
+        done
+        if ! $valid; then
+            return
+        fi
+        
+        sed -i "${choice}s/.*/$ports:$protocols/" "$RULES_CONF"
+        echo -e "${GREEN}[√] 规则已修改${RESET}"
+        configure_iptables
+    else
+        echo -e "${RED}无效的编号${RESET}"
     fi
 }
 
@@ -107,31 +261,70 @@ show_menu() {
     echo "--------------------------------"
     echo "1. 初始配置（首次使用）"
     echo "2. 更新中国IP列表"
-    echo "3. 查看当前规则"
-    echo "4. 查看IP集合统计"
-    echo "5. 添加新规则"
-    echo "6. 删除规则"
-    echo "7. 修改规则"
+    echo "3. 新增屏蔽规则"
+    echo "4. 修改屏蔽规则"
+    echo "5. 删除屏蔽规则"
+    echo "6. 查看当前规则"
+    echo "7. 查看IP集合统计"
     echo "8. 退出"
     echo "--------------------------------"
 }
 
-# 主程序循环
-while true; do
-    show_menu
-    read -p "请输入选项 [1-8]: " choice
-    case $choice in
-        1) create_ipset ;;
-        2) update_ipset ;;
-        3) show_rules ;;
-        4) show_ipset_stats ;;
-        5) add_rule ;;
-        6) delete_rule ;;
-        7) modify_rule ;;
-        8)
-            echo -e "${GREEN}已退出脚本${RESET}"
-            exit 0
-            ;;
-        *) echo -e "${RED}无效选项，请重新输入${RESET}" ;;
-    esac
-done
+# 主函数
+main() {
+    check_root
+    while true; do
+        show_menu
+        read -p "请输入选项 [1-8]: " choice
+        
+        case $choice in
+            1)
+                read -p "输入要屏蔽的端口/范围（如 80,443）：" ports
+                read -p "输入协议（如 tcp,udp，留空默认）：" protocols
+                read -p "输入中国IP列表URL（留空默认）：" custom_url
+                target_url=${custom_url:-$DEFAULT_CN_URL}
+                
+                install_dependencies
+                create_ipset
+                if download_ip_list "$target_url"; then
+                    load_ipset
+                    echo "$ports:${protocols:-tcp,udp}" > "$RULES_CONF"
+                    configure_iptables
+                    save_config
+                fi
+                ;;
+            2)
+                update_ip_list
+                ;;
+            3)
+                add_rule
+                ;;
+            4)
+                modify_rule
+                ;;
+            5)
+                delete_rule
+                ;;
+            6)
+                echo -e "\n${YELLOW}当前iptables规则：${RESET}"
+                iptables -L INPUT -n -v | grep --color=auto 'CHINA_BLOCK\|DROP'
+                show_rules
+                ;;
+            7)
+                echo -e "\n${YELLOW}IP集合统计信息：${RESET}"
+                ipset list china | head -n 7
+                ;;
+            8)
+                echo -e "${GREEN}已退出脚本${RESET}"
+                exit 0
+                ;;
+            *)
+                echo -e "${RED}无效选项，请重新输入${RESET}"
+                ;;
+        esac
+        echo
+    done
+}
+
+# 执行主函数
+main
