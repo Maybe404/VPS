@@ -193,24 +193,28 @@ add_rule() {
             fi
         done
 
-    read -p "输入协议（逗号分隔，如 tcp,udp，留空默认tcp和udp）：" protocols
-    protocols=${protocols:-"tcp,udp"}
-    
-    IFS=',' read -ra proto_array <<< "$protocols"
-    valid=true
-    for proto in "${proto_array[@]}"; do
-        if ! [[ "$proto" =~ ^(tcp|udp)$ ]]; then
-            echo -e "${RED}错误：无效协议 '$proto'，支持的协议为 tcp, udp${RESET}"
-            valid=false
+        if [ "$valid" = true ]; then
             break
         fi
     done
-    if ! $valid; then
-        return 1
-    fi
 
+    # 确认协议输入
+    read -p "输入协议（tcp,udp，多个用逗号，默认tcp,udp）：" protocols
+    protocols=${protocols:-"tcp,udp"}
+
+    IFS=',' read -ra proto_array <<< "$protocols"
+    for proto in "${proto_array[@]}"; do
+        [[ ! "$proto" =~ ^(tcp|udp)$ ]] && {
+            echo -e "${RED}无效协议 '$proto'${RESET}"
+            return
+        }
+    done
+
+    # 添加规则到配置文件
     echo "$ports:$protocols" >> "$RULES_CONF"
-    echo -e "${GREEN}[√] 规则已添加${RESET}"
+    echo -e "${GREEN}[√] 规则已添加：端口/范围：$ports 协议：$protocols${RESET}"
+
+    # 配置防火墙
     configure_iptables
 }
 
@@ -284,103 +288,45 @@ uninstall() {
         return
     fi
 
-    echo -e "${YELLOW}[+] 停止并禁用服务...${RESET}"
-    systemctl stop ipset-persistent 2>/dev/null
-    systemctl disable ipset-persistent 2>/dev/null
-    rm -f "$SERVICE_FILE" 2>/dev/null
-
-    echo -e "${YELLOW}[+] 删除配置文件...${RESET}"
-    rm -f "$IPSET_CONF" "$RULES_CONF" 2>/dev/null
-
-    echo -e "${YELLOW}[+] 清理iptables规则...${RESET}"
-    iptables-save | grep -v "CHINA_BLOCK" | iptables-restore
-    iptables-save > /etc/iptables/rules.v4 2>/dev/null
-
-    echo -e "${YELLOW}[+] 销毁ipset集合...${RESET}"
-    if ipset list china &>/dev/null; then
-        ipset destroy china
-    fi
-
-    echo -e "${YELLOW}[+] 清理临时文件...${RESET}"
-    rm -f /tmp/cn.zone 2>/dev/null
-
-    echo -e "${GREEN}[√] 所有配置已卸载完成${RESET}"
+    ipset flush china
+    ipset destroy china
+    rm -f "$RULES_CONF" "$IPSET_CONF"
+    systemctl disable ipset-persistent >/dev/null 2>&1
+    rm -f "$SERVICE_FILE"
+    iptables -F
+    iptables -t nat -F
+    echo -e "${GREEN}[√] 卸载完成${RESET}"
 }
 
-# 显示菜单
-show_menu() {
-    echo -e "\n${BLUE}中国IP屏蔽脚本 v$VERSION${RESET}"
-    echo "--------------------------------"
-    echo "1. 初始配置（首次使用）"
-    echo "2. 更新中国IP列表"
-    echo "3. 新增屏蔽规则"
-    echo "4. 修改屏蔽规则"
-    echo "5. 删除屏蔽规则"
-    echo "6. 查看当前规则"
-    echo "7. 查看IP集合统计"
-    echo "8. 卸载所有配置"
-    echo "9. 退出"
-    echo "--------------------------------"
-}
-
-# 主函数
-main() {
-    check_root
+# 菜单
+menu() {
     while true; do
-        show_menu
-        read -p "请输入选项 [1-9]: " choice
-        
-        case $choice in
-            1)
-                read -p "输入要屏蔽的端口/范围（如 80,443）：" ports
-                read -p "输入协议（如 tcp,udp，留空默认）：" protocols
-                read -p "输入中国IP列表URL（留空默认）：" custom_url
-                target_url=${custom_url:-$DEFAULT_CN_URL}
-                
-                install_dependencies
-                create_ipset
-                if download_ip_list "$target_url"; then
-                    load_ipset
-                    echo "$ports:${protocols:-tcp,udp}" > "$RULES_CONF"
-                    configure_iptables
-                    save_config
-                fi
-                ;;
-            2)
-                update_ip_list
-                ;;
-            3)
-                add_rule
-                ;;
-            4)
-                modify_rule
-                ;;
-            5)
-                delete_rule
-                ;;
-            6)
-                echo -e "\n${YELLOW}当前iptables规则：${RESET}"
-                iptables -L INPUT -n -v | grep --color=auto 'CHINA_BLOCK\|DROP'
-                show_rules
-                ;;
-            7)
-                echo -e "\n${YELLOW}IP集合统计信息：${RESET}"
-                ipset list china | head -n 7
-                ;;
-            8)
-                uninstall
-                ;;
-            9)
-                echo -e "${GREEN}已退出脚本${RESET}"
-                exit 0
-                ;;
-            *)
-                echo -e "${RED}无效选项，请重新输入${RESET}"
-                ;;
+        echo -e "\n${YELLOW}防火墙管理脚本 - 版本 $VERSION${RESET}"
+        echo "1. 添加规则"
+        echo "2. 删除规则"
+        echo "3. 修改规则"
+        echo "4. 显示规则"
+        echo "5. 更新中国IP列表"
+        echo "6. 保存配置"
+        echo "7. 卸载配置"
+        echo "8. 退出"
+        read -p "请输入选项： " option
+        case $option in
+            1) add_rule ;;
+            2) delete_rule ;;
+            3) modify_rule ;;
+            4) show_rules ;;
+            5) update_ip_list ;;
+            6) save_config ;;
+            7) uninstall ;;
+            8) exit 0 ;;
+            *) echo -e "${RED}无效选项${RESET}" ;;
         esac
-        echo
     done
 }
 
-# 执行主函数
-main
+# 主程序
+check_root
+install_dependencies
+create_ipset
+menu
