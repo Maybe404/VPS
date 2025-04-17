@@ -346,5 +346,27 @@ main() {
     done
 }
 
+# 新增防火墙规则
+add_rule() {
+    local ports=$(get_valid_ports "输入要屏蔽的端口/范围（如 80,443 或 30000-40000）：")
+    local protocol=$(get_valid_protocol "选择协议（tcp/udp/all，默认all）：")
+    
+    # 检查china集合是否存在
+    if ! ipset list china >/dev/null 2>&1; then
+        echo -e "${RED}错误：china集合不存在，请先执行初始配置！${RESET}"
+        return 1
+    fi
+    
+    # 检查IP集合是否为空
+    if [ $(ipset list china | grep -c "/") -eq 0 ]; then
+        echo -e "${RED}错误：china集合为空，请先更新IP列表！${RESET}"
+        return 1
+    fi
+    
+    configure_iptables "$ports" "$protocol"
+    save_config
+    echo -e "${GREEN}[√] 规则添加成功${RESET}"
+}
+
 # 执行主函数
 main
