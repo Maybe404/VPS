@@ -276,6 +276,52 @@ show_menu() {
     echo "--------------------------------"
 }
 
+
+
+# 修改防火墙规则（修复版）
+modify_rule() {
+    echo -e "${YELLOW}[+] 当前规则如下：${RESET}"
+    iptables -L INPUT -n --line-numbers | grep china
+    local rule_number new_ports protocol
+    
+    # 获取有效输入
+    read -p "输入要修改的规则编号：" rule_number
+    new_ports=$(get_valid_ports "输入新的端口/范围（如 3445 或 30000-40000）：")
+    protocol=$(get_valid_protocol "选择协议（tcp/udp/all，默认all）：")
+    
+    # 删除旧规则
+    iptables -D INPUT "$rule_number"
+    
+    # 添加新规则（直接调用add_rule的逻辑）
+    IFS=',' read -ra PORT_LIST <<< "$new_ports"
+    for port_range in "${PORT_LIST[@]}"; do
+        port_range=${port_range//-/:}  # 统一替换为冒号分隔
+        if [ "$protocol" == "all" ]; then
+            iptables -A INPUT -p tcp --dport "$port_range" -m set --match-set china src -j DROP
+            iptables -A INPUT -p udp --dport "$port_range" -m set --match-set china src -j DROP
+        else
+            iptables -A INPUT -p "$protocol" --dport "$port_range" -m set --match-set china src -j DROP
+        fi
+        echo -e "${BLUE}[→] 已更新规则：${port_range} 协议：${protocol}${RESET}"
+    done
+    
+    save_config
+    echo -e "${GREEN}[√] 规则修改成功${RESET}"
+}
+
+# 在show_menu函数后添加缺失的update_ip_list函数（如果不存在）
+update_ip_list() {
+    local url
+    read -p "输入新的IP列表URL（留空使用默认源）：" url
+    url=${url:-$DEFAULT_CN_URL}
+    if download_ip_list "$url"; then
+        ipset flush china
+        load_ipset
+        ipset save china -f $IPSET_CONF
+        echo -e "${GREEN}[√] IP列表更新完成${RESET}"
+    fi
+}
+
 # 主函数
 main() {
     check_root
