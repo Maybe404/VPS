@@ -322,7 +322,32 @@ update_ip_list() {
     fi
 }
 
-
+# 删除防火墙规则
+delete_rule() {
+    echo -e "${YELLOW}[+] 当前规则如下：${RESET}"
+    iptables -L INPUT -n --line-numbers | grep china
+    
+    # 获取要删除的规则编号
+    read -p "输入要删除的规则编号（输入0取消）：" rule_number
+    if [[ "$rule_number" == "0" ]]; then
+        echo -e "${YELLOW}[!] 已取消删除操作${RESET}"
+        return
+    fi
+    
+    # 验证输入是否为数字
+    if ! [[ "$rule_number" =~ ^[0-9]+$ ]]; then
+        echo -e "${RED}错误：请输入有效的规则编号${RESET}"
+        return 1
+    fi
+    
+    # 删除规则
+    if iptables -D INPUT "$rule_number"; then
+        echo -e "${GREEN}[√] 规则 ${rule_number} 删除成功${RESET}"
+        save_config
+    else
+        echo -e "${RED}[×] 删除失败，请检查规则编号是否正确${RESET}"
+    fi
+}
 
 # 卸载脚本及其安装内容（修复版）
 uninstall_script() {
@@ -399,3 +424,5 @@ main() {
 
 # 执行主函数
 main
+
+
