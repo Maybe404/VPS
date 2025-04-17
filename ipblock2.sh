@@ -346,11 +346,8 @@ main() {
     done
 }
 
-# 新增防火墙规则
+# 新增防火墙规则（修正版）
 add_rule() {
-    local ports=$(get_valid_ports "输入要屏蔽的端口/范围（如 80,443 或 30000-40000）：")
-    local protocol=$(get_valid_protocol "选择协议（tcp/udp/all，默认all）：")
-    
     # 检查china集合是否存在
     if ! ipset list china >/dev/null 2>&1; then
         echo -e "${RED}错误：china集合不存在，请先执行初始配置！${RESET}"
@@ -363,9 +360,40 @@ add_rule() {
         return 1
     fi
     
-    configure_iptables "$ports" "$protocol"
+    # 获取端口和协议输入
+    local ports=$(get_valid_ports "输入要新增屏蔽的端口/范围（如 80,443 或 30000-40000）：")
+    local protocol=$(get_valid_protocol "选择协议（tcp/udp/all，默认all）：")
+    
+    # 只添加新规则，不清除现有规则
+    IFS=',' read -ra PORT_LIST <<< "$ports"
+    for port in "${PORT_LIST[@]}"; do
+        if [ "$protocol" == "all" ]; then
+            iptables -A INPUT -p tcp --dport "$port" -m set --match-set china src -j DROP
+            iptables -A INPUT -p udp --dport "$port" -m set --match-set china src -j DROP
+        else
+            iptables -A INPUT -p "$protocol" --dport "$port" -m set --match-set china src -j DROP
+        fi
+        echo -e "${BLUE}[→] 已新增屏蔽端口：${port} 协议：${protocol}${RESET}"
+    done
+    
     save_config
     echo -e "${GREEN}[√] 规则添加成功${RESET}"
+}
+
+# 需要确保get_valid_protocol函数存在，如果没有请添加：
+get_valid_protocol() {
+    local prompt="$1"
+    local protocol
+    while true; do
+        read -r -p "$prompt" protocol
+        protocol=${protocol:-all}
+        if [[ "$protocol" =~ ^(tcp|udp|all)$ ]]; then
+            echo "$protocol"
+            return
+        else
+            echo -e "${RED}错误：协议必须是tcp、udp或all${RESET}" >&2
+        fi
+    done
 }
 
 # 执行主函数
