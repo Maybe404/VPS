@@ -348,49 +348,9 @@ main() {
                 else
                     echo -e "${RED}[×] IP列表下载失败，初始化未完成${RESET}" >&2
                 fi
-                ;;
-            2) update_ip_list ;;
-            3) iptables -L INPUT -n -v | grep --color=auto 'china\|DROP' ;;
-            4) ipset list china | head -n 7 ;;
-            5) add_rule ;;
-            6) modify_rule ;;
-            7) delete_rule ;;
-            8)
-            # 卸载脚本及其安装内容（修复版）
-            uninstall_script() {
-                echo -e "${YELLOW}[+] 正在卸载脚本安装内容...${RESET}"
-                
-                # 清除iptables规则
-                echo -e "${BLUE}[→] 正在清除iptables规则...${RESET}"
-                iptables-save | grep -v "china" | iptables-restore
-                
-                # 删除ipset集合
-                echo -e "${BLUE}[→] 正在删除ipset集合...${RESET}"
-                ipset destroy china >/dev/null 2>&1 || true
-                
-                # 停止并删除持久化服务
-                if [ -f "$SERVICE_FILE" ]; then
-                    echo -e "${BLUE}[→] 正在删除持久化服务...${RESET}"
-                    systemctl stop ipset-persistent >/dev/null 2>&1
-                    systemctl disable ipset-persistent >/dev/null 2>&1
-                    rm -f "$SERVICE_FILE"
-                    systemctl daemon-reload
-                fi
-                
-                # 删除配置文件
-                echo -e "${BLUE}[→] 正在删除配置文件...${RESET}"
-                rm -f "$IPSET_CONF" >/dev/null 2>&1
-                
-                # 卸载依赖包
-                echo -e "${BLUE}[→] 正在卸载相关依赖...${RESET}"
-                apt remove --purge -y iptables-persistent >/dev/null 2>&1
-                
-                echo -e "${GREEN}[√] 脚本卸载完成，建议手动执行以下命令："
-                echo -e "1. 手动卸载ipset: ${YELLOW}apt remove ipset${RESET}"
-                echo -e "2. 删除残留配置: ${YELLOW}rm -f /etc/iptables/rules.v4${RESET}"
-            }
-            9) echo -e "${GREEN}已退出脚本${RESET}"; exit 0 ;;
-            *) echo -e "${RED}无效选项，请重新输入${RESET}" ;;
+                8) uninstall_script ;;  # 这里改为调用函数
+                9) echo -e "${GREEN}已退出脚本${RESET}"; exit 0 ;;
+                *) echo -e "${RED}无效选项，请重新输入${RESET}" ;;
         esac
         echo
     done
