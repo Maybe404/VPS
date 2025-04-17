@@ -28,9 +28,45 @@ check_root() {
 # 安装依赖
 install_dependencies() {
     echo -e "${YELLOW}[+] 正在安装必要依赖...${RESET}"
-    apt update >/dev/null 2>&1
-    apt install -y iptables ipset iptables-persistent >/dev/null 2>&1
-    echo -e "${GREEN}[√] 依赖安装完成${RESET}"
+    
+    # 更新软件包列表并显示进度
+    echo -e "${BLUE}[→] 正在更新软件包列表...${RESET}"
+    if apt update 2>&1 | tee /tmp/apt_update.log; then
+        echo -e "${GREEN}[√] 软件包列表更新成功${RESET}"
+    else
+        echo -e "${RED}[×] 软件包列表更新失败${RESET}"
+        echo -e "${YELLOW}错误详情：${RESET}"
+        cat /tmp/apt_update.log
+        return 1
+    fi
+    
+    # 安装依赖包并显示进度
+    local packages=("iptables" "ipset" "iptables-persistent")
+    for pkg in "${packages[@]}"; do
+        echo -e "${BLUE}[→] 正在安装 ${pkg}...${RESET}"
+        if apt install -y "$pkg" 2>&1 | tee /tmp/apt_install.log; then
+            echo -e "${GREEN}[√] ${pkg} 安装成功${RESET}"
+        else
+            echo -e "${RED}[×] ${pkg} 安装失败${RESET}"
+            echo -e "${YELLOW}错误详情：${RESET}"
+            cat /tmp/apt_install.log
+            return 1
+        fi
+    done
+    
+    # 验证安装
+    echo -e "${BLUE}[→] 验证依赖安装...${RESET}"
+    for cmd in iptables ipset; do
+        if command -v "$cmd" >/dev/null 2>&1; then
+            echo -e "${GREEN}[√] ${cmd} 已正确安装${RESET}"
+        else
+            echo -e "${RED}[×] ${cmd} 未找到，安装可能失败${RESET}"
+            return 1
+        fi
+    done
+    
+    echo -e "${GREEN}[√] 所有依赖安装完成${RESET}"
+    return 0
 }
 
 # 创建ipset集合
