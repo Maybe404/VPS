@@ -260,6 +260,22 @@ get_valid_protocol() {
     done
 }
 
+# 显示菜单函数
+show_menu() {
+    echo -e "\n${BLUE}中国IP屏蔽脚本 v$VERSION${RESET}"
+    echo "--------------------------------"
+    echo "1. 初始配置（首次使用）"
+    echo "2. 更新中国IP列表"
+    echo "3. 查看当前规则"
+    echo "4. 查看IP集合统计"
+    echo "5. 新增防火墙规则"
+    echo "6. 修改防火墙规则"
+    echo "7. 删除防火墙规则"
+    echo "8. 卸载脚本及其安装内容"
+    echo "9. 退出"
+    echo "--------------------------------"
+}
+
 # 主函数
 main() {
     check_root
