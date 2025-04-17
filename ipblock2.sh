@@ -1,6 +1,7 @@
 #!/bin/bash
 
-
+# 脚本名称
+# SCRIPT_NAME="ipblock2.sh"
 # 版本号
 VERSION="1.4"
 # 默认中国IP列表源
@@ -346,7 +347,7 @@ main() {
     done
 }
 
-# 新增防火墙规则（修正版）
+# 新增防火墙规则（支持端口范围）
 add_rule() {
     # 检查china集合是否存在
     if ! ipset list china >/dev/null 2>&1; then
@@ -364,16 +365,30 @@ add_rule() {
     local ports=$(get_valid_ports "输入要新增屏蔽的端口/范围（如 80,443 或 30000-40000）：")
     local protocol=$(get_valid_protocol "选择协议（tcp/udp/all，默认all）：")
     
-    # 只添加新规则，不清除现有规则
+    # 处理端口范围
     IFS=',' read -ra PORT_LIST <<< "$ports"
-    for port in "${PORT_LIST[@]}"; do
-        if [ "$protocol" == "all" ]; then
-            iptables -A INPUT -p tcp --dport "$port" -m set --match-set china src -j DROP
-            iptables -A INPUT -p udp --dport "$port" -m set --match-set china src -j DROP
+    for port_range in "${PORT_LIST[@]}"; do
+        if [[ "$port_range" =~ ^[0-9]+-[0-9]+$ ]]; then
+            # 处理端口范围
+            local start_port=${port_range%-*}
+            local end_port=${port_range#*-}
+            if [ "$protocol" == "all" ]; then
+                iptables -A INPUT -p tcp --dport "$start_port:$end_port" -m set --match-set china src -j DROP
+                iptables -A INPUT -p udp --dport "$start_port:$end_port" -m set --match-set china src -j DROP
+            else
+                iptables -A INPUT -p "$protocol" --dport "$start_port:$end_port" -m set --match-set china src -j DROP
+            fi
+            echo -e "${BLUE}[→] 已新增屏蔽端口范围：${port_range} 协议：${protocol}${RESET}"
         else
-            iptables -A INPUT -p "$protocol" --dport "$port" -m set --match-set china src -j DROP
+            # 处理单个端口
+            if [ "$protocol" == "all" ]; then
+                iptables -A INPUT -p tcp --dport "$port_range" -m set --match-set china src -j DROP
+                iptables -A INPUT -p udp --dport "$port_range" -m set --match-set china src -j DROP
+            else
+                iptables -A INPUT -p "$protocol" --dport "$port_range" -m set --match-set china src -j DROP
+            fi
+            echo -e "${BLUE}[→] 已新增屏蔽端口：${port_range} 协议：${protocol}${RESET}"
         fi
-        echo -e "${BLUE}[→] 已新增屏蔽端口：${port} 协议：${protocol}${RESET}"
     done
     
     save_config
