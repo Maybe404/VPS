@@ -82,14 +82,21 @@ create_ipset() {
 # 下载IP列表
 download_ip_list() {
     local url="$1"
+    local retry=3
     echo -e "${YELLOW}[+] 正在从 $url 下载IP列表...${RESET}"
-    if wget -qO /tmp/cn.zone "$url"; then
-        echo -e "${GREEN}[√] IP列表下载成功${RESET}"
-        return 0
-    else
-        echo -e "${RED}[×] 下载失败，请检查URL有效性${RESET}"
-        return 1
-    fi
+    
+    for ((i=1; i<=retry; i++)); do
+        if wget -qO /tmp/cn.zone "$url"; then
+            echo -e "${GREEN}[√] IP列表下载成功${RESET}"
+            return 0
+        else
+            echo -e "${YELLOW}[!] 尝试 $i/$retry 下载失败，正在重试...${RESET}"
+            sleep 2
+        fi
+    done
+    
+    echo -e "${RED}[×] 下载失败，请检查URL有效性或网络连接${RESET}"
+    return 1
 }
 
 # 加载IP到集合
@@ -142,13 +149,112 @@ EOF
     echo -e "${GREEN}[√] 配置已持久化，重启后自动生效${RESET}"
 }
 
-# 新增防火墙规则
+# 验证端口格式
+validate_ports() {
+    local ports="$1"
+    # 允许单个端口或端口范围
+    if [[ ! "$ports" =~ ^([0-9]+(-[0-9]+)?)(,([0-9]+(-[0-9]+)?))*$ ]]; then
+        echo -e "${RED}错误：端口格式不正确！请使用单个端口(如80)或范围(如30000-40000)，多个端口用逗号分隔${RESET}"
+        return 1
+    fi
+    return 0
+}
+
+# 验证协议格式
+validate_protocol() {
+    local protocol="$1"
+    if [[ ! "$protocol" =~ ^(tcp|udp|all)$ ]]; then
+        echo -e "${RED}错误：协议必须是tcp、udp或all${RESET}"
+        return 1
+    fi
+    return 0
+}
+
+# 获取有效端口输入
+get_valid_ports() {
+    local prompt="$1"
+    local ports
+    while true; do
+        read -p "$prompt" ports
+        if validate_ports "$ports"; then
+            echo "$ports"
+            return
+        fi
+    done
+}
+
+# 获取有效协议输入
+get_valid_protocol() {
+    local prompt="$1"
+    local protocol
+    while true; do
+        read -p "$prompt" protocol
+        protocol=${protocol:-all}
+        if validate_protocol "$protocol"; then
+            echo "$protocol"
+            return
+        fi
+    done
+}
+
+# 修改后的新增防火墙规则函数
 add_rule() {
-    local ports protocol
-    read -p "输入要屏蔽的端口/范围（如 3445 或 30000-40000）：" ports
-    read -p "选择协议（tcp/udp，留空默认全部协议）：" protocol
-    protocol=${protocol:-all}
+    local ports=$(get_valid_ports "输入要屏蔽的端口/范围（如 80 或 30000-40000，多个用逗号分隔）：")
+    local protocol=$(get_valid_protocol "选择协议（tcp/udp/all，默认all）：")
     configure_iptables "$ports" "$protocol"
+}
+
+# 修改后的初始配置函数
+main() {
+    check_root
+    while true; do
+        show_menu
+        read -p "请输入选项 [1-9]: " choice
+        case $choice in
+            1)
+                local ports=$(get_valid_ports "输入要屏蔽的端口/范围（如 80,443 或 30000-40000）：")
+                local protocol=$(get_valid_protocol "选择协议（tcp/udp/all，默认all）：")
+                read -p "输入中国IP列表URL（留空使用默认）：" custom_url
+                target_url=${custom_url:-$DEFAULT_CN_URL}
+                install_dependencies
+                create_ipset
+                if download_ip_list "$target_url"; then
+                    load_ipset
+                    configure_iptables "$ports" "$protocol"
+                    save_config
+                fi
+                ;;
+            2) update_ip_list ;;
+            3) iptables -L INPUT -n -v | grep --color=auto 'china\|DROP' ;;
+            4) ipset list china | head -n 7 ;;
+            5) add_rule ;;
+            6) modify_rule ;;
+            7) delete_rule ;;
+            8) uninstall_script ;;
+            9) echo -e "${GREEN}已退出脚本${RESET}"; exit 0 ;;
+            *) echo -e "${RED}无效选项，请重新输入${RESET}" ;;
+        esac
+    done
+}
+
+# 修改后的下载IP列表函数，增加重试机制
+download_ip_list() {
+    local url="$1"
+    local retry=3
+    echo -e "${YELLOW}[+] 正在从 $url 下载IP列表...${RESET}"
+    
+    for ((i=1; i<=retry; i++)); do
+        if wget -qO /tmp/cn.zone "$url"; then
+            echo -e "${GREEN}[√] IP列表下载成功${RESET}"
+            return 0
+        else
+            echo -e "${YELLOW}[!] 尝试 $i/$retry 下载失败，正在重试...${RESET}"
+            sleep 2
+        fi
+    done
+    
+    echo -e "${RED}[×] 下载失败，请检查URL有效性或网络连接${RESET}"
+    return 1
 }
 
 # 修改防火墙规则
@@ -263,4 +369,3 @@ main() {
 }
 
 # 执行主函数
-main
