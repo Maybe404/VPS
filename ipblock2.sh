@@ -149,33 +149,27 @@ EOF
     echo -e "${GREEN}[√] 配置已持久化，重启后自动生效${RESET}"
 }
 
-# 验证端口格式
+# 修改验证端口格式函数
 validate_ports() {
     local ports="$1"
-    # 允许单个端口或端口范围
-    if [[ ! "$ports" =~ ^([0-9]+(-[0-9]+)?)(,([0-9]+(-[0-9]+)?))*$ ]]; then
-        echo -e "${RED}错误：端口格式不正确！请使用单个端口(如80)或范围(如30000-40000)，多个端口用逗号分隔${RESET}"
+    # 允许单个端口或端口范围，支持逗号分隔
+    if [[ ! "$ports" =~ ^[0-9]+(-[0-9]+)?(,[0-9]+(-[0-9]+)?)*$ ]]; then
+        echo -e "${RED}错误：端口格式不正确！请使用单个端口(如80)或范围(如30000-40000)，多个端口用逗号分隔${RESET}" >&2
         return 1
     fi
     return 0
 }
 
-# 验证协议格式
-validate_protocol() {
-    local protocol="$1"
-    if [[ ! "$protocol" =~ ^(tcp|udp|all)$ ]]; then
-        echo -e "${RED}错误：协议必须是tcp、udp或all${RESET}"
-        return 1
-    fi
-    return 0
-}
-
-# 获取有效端口输入
+# 修改获取有效端口输入函数
 get_valid_ports() {
     local prompt="$1"
     local ports
     while true; do
-        read -p "$prompt" ports
+        read -r -p "$prompt" ports
+        if [ -z "$ports" ]; then
+            echo -e "${RED}错误：端口不能为空${RESET}" >&2
+            continue
+        fi
         if validate_ports "$ports"; then
             echo "$ports"
             return
@@ -183,45 +177,29 @@ get_valid_ports() {
     done
 }
 
-# 获取有效协议输入
-get_valid_protocol() {
-    local prompt="$1"
-    local protocol
-    while true; do
-        read -p "$prompt" protocol
-        protocol=${protocol:-all}
-        if validate_protocol "$protocol"; then
-            echo "$protocol"
-            return
-        fi
-    done
-}
-
-# 修改后的新增防火墙规则函数
-add_rule() {
-    local ports=$(get_valid_ports "输入要屏蔽的端口/范围（如 80 或 30000-40000，多个用逗号分隔）：")
-    local protocol=$(get_valid_protocol "选择协议（tcp/udp/all，默认all）：")
-    configure_iptables "$ports" "$protocol"
-}
-
-# 修改后的初始配置函数
+# 修改主函数中的case 1部分
 main() {
     check_root
     while true; do
         show_menu
-        read -p "请输入选项 [1-9]: " choice
+        read -r -p "请输入选项 [1-9]: " choice
         case $choice in
             1)
-                local ports=$(get_valid_ports "输入要屏蔽的端口/范围（如 80,443 或 30000-40000）：")
-                local protocol=$(get_valid_protocol "选择协议（tcp/udp/all，默认all）：")
-                read -p "输入中国IP列表URL（留空使用默认）：" custom_url
+                ports=$(get_valid_ports "输入要屏蔽的端口/范围（如 80,443 或 30000-40000）：")
+                protocol=$(get_valid_protocol "选择协议（tcp/udp/all，默认all）：")
+                read -r -p "输入中国IP列表URL（留空使用默认）：" custom_url
                 target_url=${custom_url:-$DEFAULT_CN_URL}
-                install_dependencies
+                if ! install_dependencies; then
+                    echo -e "${RED}[×] 依赖安装失败，请检查错误信息${RESET}" >&2
+                    continue
+                fi
                 create_ipset
                 if download_ip_list "$target_url"; then
                     load_ipset
                     configure_iptables "$ports" "$protocol"
                     save_config
+                else
+                    echo -e "${RED}[×] IP列表下载失败，初始化未完成${RESET}" >&2
                 fi
                 ;;
             2) update_ip_list ;;
