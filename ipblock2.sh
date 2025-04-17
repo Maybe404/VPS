@@ -260,5 +260,44 @@ get_valid_protocol() {
     done
 }
 
+# 主函数
+main() {
+    check_root
+    while true; do
+        show_menu
+        read -p "请输入选项 [1-9]: " choice
+        case $choice in
+            1)
+                ports=$(get_valid_ports "输入要屏蔽的端口/范围（如 80,443 或 30000-40000）：")
+                protocol=$(get_valid_protocol "选择协议（tcp/udp/all，默认all）：")
+                read -p "输入中国IP列表URL（留空使用默认）：" custom_url
+                target_url=${custom_url:-$DEFAULT_CN_URL}
+                if ! install_dependencies; then
+                    echo -e "${RED}[×] 依赖安装失败，请检查错误信息${RESET}" >&2
+                    continue
+                fi
+                create_ipset
+                if download_ip_list "$target_url"; then
+                    load_ipset
+                    configure_iptables "$ports" "$protocol"
+                    save_config
+                else
+                    echo -e "${RED}[×] IP列表下载失败，初始化未完成${RESET}" >&2
+                fi
+                ;;
+            2) update_ip_list ;;
+            3) iptables -L INPUT -n -v | grep --color=auto 'china\|DROP' ;;
+            4) ipset list china | head -n 7 ;;
+            5) add_rule ;;
+            6) modify_rule ;;
+            7) delete_rule ;;
+            8) uninstall_script ;;
+            9) echo -e "${GREEN}已退出脚本${RESET}"; exit 0 ;;
+            *) echo -e "${RED}无效选项，请重新输入${RESET}" ;;
+        esac
+        echo
+    done
+}
+
 # 执行主函数
 main
